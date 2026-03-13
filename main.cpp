@@ -1,15 +1,15 @@
 #include <iostream>
 #include <string>
 #include <vector>
+#include <unordered_map>
 #include <map>
-#include <set>
 #include <algorithm>
 #include <sstream>
 
 using namespace std;
 
 struct Submission {
-    string problem;
+    char problem;
     string status;
     int time;
     bool isFrozen;
@@ -18,23 +18,46 @@ struct Submission {
 struct ProblemStatus {
     bool solved = false;
     int firstSolveTime = 0;
-    int wrongAttemptsBefore = 0;  // Wrong attempts before solving or before freeze
-    vector<Submission*> frozenSubmissions;  // Submissions made during freeze period
+    int wrongAttemptsBefore = 0;
+    vector<int> frozenSubmissionIndices;
 };
 
 struct Team {
     string name;
-    map<char, ProblemStatus> problems;
+    ProblemStatus problems[26];
     vector<Submission> submissions;
     int solvedCount = 0;
     int penaltyTime = 0;
     vector<int> solveTimes;
     int rank = 0;
+
+    void addSolveTime(int time) {
+        solveTimes.insert(lower_bound(solveTimes.begin(), solveTimes.end(), time), time);
+    }
 };
+
+bool compareTeams(const Team& t1, const Team& t2) {
+    if (t1.solvedCount != t2.solvedCount) {
+        return t1.solvedCount > t2.solvedCount;
+    }
+    if (t1.penaltyTime != t2.penaltyTime) {
+        return t1.penaltyTime < t2.penaltyTime;
+    }
+
+    int s1 = t1.solveTimes.size();
+    int s2 = t2.solveTimes.size();
+    for (int i = s1 - 1, j = s2 - 1; i >= 0 && j >= 0; i--, j--) {
+        if (t1.solveTimes[i] != t2.solveTimes[j]) {
+            return t1.solveTimes[i] < t2.solveTimes[j];
+        }
+    }
+
+    return t1.name < t2.name;
+}
 
 class ICPCSystem {
 private:
-    map<string, Team> teams;
+    unordered_map<string, Team> teams;
     vector<string> teamOrder;
     bool started = false;
     int durationTime = 0;
@@ -44,26 +67,8 @@ private:
 
     void calculateRankings() {
         vector<string> names = teamOrder;
-
         sort(names.begin(), names.end(), [this](const string& a, const string& b) {
-            const Team& t1 = teams[a];
-            const Team& t2 = teams[b];
-
-            if (t1.solvedCount != t2.solvedCount) {
-                return t1.solvedCount > t2.solvedCount;
-            }
-            if (t1.penaltyTime != t2.penaltyTime) {
-                return t1.penaltyTime < t2.penaltyTime;
-            }
-
-            for (int i = (int)t1.solveTimes.size() - 1, j = (int)t2.solveTimes.size() - 1;
-                 i >= 0 && j >= 0; i--, j--) {
-                if (t1.solveTimes[i] != t2.solveTimes[j]) {
-                    return t1.solveTimes[i] < t2.solveTimes[j];
-                }
-            }
-
-            return a < b;
+            return compareTeams(teams[a], teams[b]);
         });
 
         for (size_t i = 0; i < names.size(); i++) {
@@ -71,13 +76,8 @@ private:
         }
     }
 
-    string getProblemStatusStr(const Team& team, char prob) {
-        auto it = team.problems.find(prob);
-        if (it == team.problems.end()) {
-            return ".";
-        }
-
-        const ProblemStatus& ps = it->second;
+    string getProblemStatusStr(const Team& team, int probIdx) {
+        const ProblemStatus& ps = team.problems[probIdx];
 
         if (ps.solved) {
             if (ps.wrongAttemptsBefore == 0) {
@@ -85,11 +85,12 @@ private:
             } else {
                 return "+" + to_string(ps.wrongAttemptsBefore);
             }
-        } else if (!ps.frozenSubmissions.empty()) {
+        } else if (!ps.frozenSubmissionIndices.empty()) {
+            int frozenCount = ps.frozenSubmissionIndices.size();
             if (ps.wrongAttemptsBefore == 0) {
-                return "0/" + to_string((int)ps.frozenSubmissions.size());
+                return "0/" + to_string(frozenCount);
             } else {
-                return "-" + to_string(ps.wrongAttemptsBefore) + "/" + to_string((int)ps.frozenSubmissions.size());
+                return "-" + to_string(ps.wrongAttemptsBefore) + "/" + to_string(frozenCount);
             }
         } else {
             if (ps.wrongAttemptsBefore == 0) {
@@ -107,8 +108,7 @@ private:
                  << " " << team.penaltyTime;
 
             for (int i = 0; i < problemCount; i++) {
-                char prob = 'A' + i;
-                cout << " " << getProblemStatusStr(team, prob);
+                cout << " " << getProblemStatusStr(team, i);
             }
             cout << "\n";
         }
@@ -143,36 +143,33 @@ public:
     void submit(const string& problem, const string& teamName,
                 const string& status, int time) {
         Team& team = teams[teamName];
-        char prob = problem[0];
+        int probIdx = problem[0] - 'A';
 
         Submission sub;
-        sub.problem = problem;
+        sub.problem = problem[0];
         sub.status = status;
         sub.time = time;
         sub.isFrozen = false;
 
+        int subIdx = team.submissions.size();
         team.submissions.push_back(sub);
-        Submission* subPtr = &team.submissions.back();
 
-        ProblemStatus& ps = team.problems[prob];
+        ProblemStatus& ps = team.problems[probIdx];
         bool wasSolvedBefore = ps.solved;
 
         if (!frozen || wasSolvedBefore) {
-            // Not frozen or problem was already solved
             if (status == "Accepted" && !ps.solved) {
                 ps.solved = true;
                 ps.firstSolveTime = time;
                 team.solvedCount++;
                 team.penaltyTime += 20 * ps.wrongAttemptsBefore + time;
-                team.solveTimes.push_back(time);
-                sort(team.solveTimes.begin(), team.solveTimes.end());
+                team.addSolveTime(time);
             } else if (status != "Accepted" && !ps.solved) {
                 ps.wrongAttemptsBefore++;
             }
         } else {
-            // Frozen and problem not solved
-            subPtr->isFrozen = true;
-            ps.frozenSubmissions.push_back(subPtr);
+            team.submissions[subIdx].isFrozen = true;
+            ps.frozenSubmissionIndices.push_back(subIdx);
         }
     }
 
@@ -199,29 +196,26 @@ public:
 
         cout << "[Info]Scroll scoreboard.\n";
 
-        // First flush the scoreboard
         calculateRankings();
         printScoreboard();
 
-        // Continue until no teams have frozen problems
         while (true) {
-            // Find the lowest-ranked team with frozen problems
             string lowestTeam = "";
             int lowestRank = -1;
 
             for (const string& name : teamOrder) {
                 Team& team = teams[name];
-                bool hasFrozen = false;
+                if (team.rank <= lowestRank) continue;
 
+                bool hasFrozen = false;
                 for (int i = 0; i < problemCount; i++) {
-                    char prob = 'A' + i;
-                    if (!team.problems[prob].frozenSubmissions.empty()) {
+                    if (!team.problems[i].frozenSubmissionIndices.empty()) {
                         hasFrozen = true;
                         break;
                     }
                 }
 
-                if (hasFrozen && team.rank > lowestRank) {
+                if (hasFrozen) {
                     lowestRank = team.rank;
                     lowestTeam = name;
                 }
@@ -231,39 +225,34 @@ public:
 
             Team& team = teams[lowestTeam];
 
-            // Find the smallest problem number with frozen status
-            char minFrozenProb = 0;
+            int minFrozenProbIdx = -1;
             for (int i = 0; i < problemCount; i++) {
-                char prob = 'A' + i;
-                if (!team.problems[prob].frozenSubmissions.empty()) {
-                    minFrozenProb = prob;
+                if (!team.problems[i].frozenSubmissionIndices.empty()) {
+                    minFrozenProbIdx = i;
                     break;
                 }
             }
 
-            ProblemStatus& ps = team.problems[minFrozenProb];
+            ProblemStatus& ps = team.problems[minFrozenProbIdx];
             int oldRank = team.rank;
 
-            // Process frozen submissions for this problem
-            for (Submission* sub : ps.frozenSubmissions) {
-                if (sub->status == "Accepted" && !ps.solved) {
+            for (int idx : ps.frozenSubmissionIndices) {
+                const Submission& sub = team.submissions[idx];
+                if (sub.status == "Accepted" && !ps.solved) {
                     ps.solved = true;
-                    ps.firstSolveTime = sub->time;
+                    ps.firstSolveTime = sub.time;
                     team.solvedCount++;
-                    team.penaltyTime += 20 * ps.wrongAttemptsBefore + sub->time;
-                    team.solveTimes.push_back(sub->time);
-                    sort(team.solveTimes.begin(), team.solveTimes.end());
-                } else if (sub->status != "Accepted" && !ps.solved) {
+                    team.penaltyTime += 20 * ps.wrongAttemptsBefore + sub.time;
+                    team.addSolveTime(sub.time);
+                } else if (sub.status != "Accepted" && !ps.solved) {
                     ps.wrongAttemptsBefore++;
                 }
             }
 
-            ps.frozenSubmissions.clear();
+            ps.frozenSubmissionIndices.clear();
 
-            // Recalculate rankings
             calculateRankings();
 
-            // Check if ranking changed
             if (team.rank < oldRank) {
                 string replaced = "";
                 for (const string& n : teamOrder) {
@@ -290,7 +279,6 @@ public:
                 cout << "[Warning]Scoreboard is frozen. The ranking may be inaccurate until it were scrolled.\n";
             }
             if (!hasFlushed) {
-                // Before first flush, rank by lexicographic order
                 vector<string> sorted = teamOrder;
                 sort(sorted.begin(), sorted.end());
                 int rank = 1;
@@ -316,9 +304,9 @@ public:
             Submission found;
             bool foundAny = false;
 
-            for (int i = team.submissions.size() - 1; i >= 0; i--) {
+            for (int i = (int)team.submissions.size() - 1; i >= 0; i--) {
                 const Submission& sub = team.submissions[i];
-                bool problemMatch = (problem == "ALL" || sub.problem == problem);
+                bool problemMatch = (problem == "ALL" || sub.problem == problem[0]);
                 bool statusMatch = (status == "ALL" || sub.status == status);
 
                 if (problemMatch && statusMatch) {
@@ -343,6 +331,9 @@ public:
 };
 
 int main() {
+    ios_base::sync_with_stdio(false);
+    cin.tie(nullptr);
+
     ICPCSystem system;
     string line;
 
