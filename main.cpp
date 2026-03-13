@@ -37,24 +37,26 @@ struct Team {
     }
 };
 
-bool compareTeams(const Team& t1, const Team& t2) {
-    if (t1.solvedCount != t2.solvedCount) {
-        return t1.solvedCount > t2.solvedCount;
-    }
-    if (t1.penaltyTime != t2.penaltyTime) {
-        return t1.penaltyTime < t2.penaltyTime;
-    }
-
-    int s1 = t1.solveTimes.size();
-    int s2 = t2.solveTimes.size();
-    for (int i = s1 - 1, j = s2 - 1; i >= 0 && j >= 0; i--, j--) {
-        if (t1.solveTimes[i] != t2.solveTimes[j]) {
-            return t1.solveTimes[i] < t2.solveTimes[j];
+struct TeamComparator {
+    bool operator()(const Team* t1, const Team* t2) const {
+        if (t1->solvedCount != t2->solvedCount) {
+            return t1->solvedCount > t2->solvedCount;
         }
-    }
+        if (t1->penaltyTime != t2->penaltyTime) {
+            return t1->penaltyTime < t2->penaltyTime;
+        }
 
-    return t1.name < t2.name;
-}
+        int s1 = t1->solveTimes.size();
+        int s2 = t2->solveTimes.size();
+        for (int i = s1 - 1, j = s2 - 1; i >= 0 && j >= 0; i--, j--) {
+            if (t1->solveTimes[i] != t2->solveTimes[j]) {
+                return t1->solveTimes[i] < t2->solveTimes[j];
+            }
+        }
+
+        return t1->name < t2->name;
+    }
+};
 
 class ICPCSystem {
 private:
@@ -67,13 +69,17 @@ private:
     bool hasFlushed = false;
 
     void calculateRankings() {
-        vector<string> names = teamOrder;
-        sort(names.begin(), names.end(), [this](const string& a, const string& b) {
-            return compareTeams(teams[a], teams[b]);
-        });
+        static vector<Team*> teamPtrs;
+        teamPtrs.clear();
+        teamPtrs.reserve(teamOrder.size());
+        for (const string& name : teamOrder) {
+            teamPtrs.push_back(&teams[name]);
+        }
 
-        for (size_t i = 0; i < names.size(); i++) {
-            teams[names[i]].rank = i + 1;
+        sort(teamPtrs.begin(), teamPtrs.end(), TeamComparator());
+
+        for (size_t i = 0; i < teamPtrs.size(); i++) {
+            teamPtrs[i]->rank = i + 1;
         }
     }
 
@@ -354,9 +360,11 @@ public:
 int main() {
     ios_base::sync_with_stdio(false);
     cin.tie(nullptr);
+    cout.tie(nullptr);
 
     ICPCSystem system;
     string line;
+    line.reserve(256);
 
     while (getline(cin, line)) {
         if (line.empty()) continue;
