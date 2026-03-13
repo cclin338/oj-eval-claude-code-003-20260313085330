@@ -174,7 +174,9 @@ public:
     }
 
     void flush() {
-        calculateRankings();
+        if (!frozen) {
+            calculateRankings();
+        }
         hasFlushed = true;
         cout << "[Info]Flush scoreboard.\n";
     }
