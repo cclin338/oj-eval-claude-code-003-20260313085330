@@ -5,12 +5,13 @@
 #include <map>
 #include <algorithm>
 #include <sstream>
+#include <cstring>
 
 using namespace std;
 
 struct Submission {
     char problem;
-    string status;
+    char status;  // 'A'=Accepted, 'W'=Wrong_Answer, 'R'=Runtime_Error, 'T'=Time_Limit_Exceed
     int time;
     bool isFrozen;
 };
@@ -140,10 +141,19 @@ public:
         }
     }
 
+    char statusToChar(const string& status) {
+        if (status[0] == 'A') return 'A';  // Accepted
+        if (status[0] == 'W') return 'W';  // Wrong_Answer
+        if (status[0] == 'R') return 'R';  // Runtime_Error
+        return 'T';  // Time_Limit_Exceed
+    }
+
     void submit(const string& problem, const string& teamName,
-                const string& status, int time) {
+                const string& statusStr, int time) {
         Team& team = teams[teamName];
         int probIdx = problem[0] - 'A';
+
+        char status = statusToChar(statusStr);
 
         Submission sub;
         sub.problem = problem[0];
@@ -158,13 +168,13 @@ public:
         bool wasSolvedBefore = ps.solved;
 
         if (!frozen || wasSolvedBefore) {
-            if (status == "Accepted" && !ps.solved) {
+            if (status == 'A' && !ps.solved) {
                 ps.solved = true;
                 ps.firstSolveTime = time;
                 team.solvedCount++;
                 team.penaltyTime += 20 * ps.wrongAttemptsBefore + time;
                 team.addSolveTime(time);
-            } else if (status != "Accepted" && !ps.solved) {
+            } else if (status != 'A' && !ps.solved) {
                 ps.wrongAttemptsBefore++;
             }
         } else {
@@ -240,13 +250,13 @@ public:
 
             for (int idx : ps.frozenSubmissionIndices) {
                 const Submission& sub = team.submissions[idx];
-                if (sub.status == "Accepted" && !ps.solved) {
+                if (sub.status == 'A' && !ps.solved) {
                     ps.solved = true;
                     ps.firstSolveTime = sub.time;
                     team.solvedCount++;
                     team.penaltyTime += 20 * ps.wrongAttemptsBefore + sub.time;
                     team.addSolveTime(sub.time);
-                } else if (sub.status != "Accepted" && !ps.solved) {
+                } else if (sub.status != 'A' && !ps.solved) {
                     ps.wrongAttemptsBefore++;
                 }
             }
@@ -295,8 +305,15 @@ public:
         }
     }
 
+    string charToString(char status) {
+        if (status == 'A') return "Accepted";
+        if (status == 'W') return "Wrong_Answer";
+        if (status == 'R') return "Runtime_Error";
+        return "Time_Limit_Exceed";
+    }
+
     void querySubmission(const string& name, const string& problem,
-                         const string& status) {
+                         const string& statusStr) {
         if (teams.find(name) == teams.end()) {
             cout << "[Error]Query submission failed: cannot find the team.\n";
         } else {
@@ -306,10 +323,12 @@ public:
             Submission found;
             bool foundAny = false;
 
+            char statusChar = (statusStr == "ALL") ? 0 : statusToChar(statusStr);
+
             for (int i = (int)team.submissions.size() - 1; i >= 0; i--) {
                 const Submission& sub = team.submissions[i];
                 bool problemMatch = (problem == "ALL" || sub.problem == problem[0]);
-                bool statusMatch = (status == "ALL" || sub.status == status);
+                bool statusMatch = (statusStr == "ALL" || sub.status == statusChar);
 
                 if (problemMatch && statusMatch) {
                     found = sub;
@@ -320,7 +339,7 @@ public:
 
             if (foundAny) {
                 cout << name << " " << found.problem << " "
-                     << found.status << " " << found.time << "\n";
+                     << charToString(found.status) << " " << found.time << "\n";
             } else {
                 cout << "Cannot find any submission.\n";
             }
